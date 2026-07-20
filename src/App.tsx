@@ -98,7 +98,7 @@ export default function App() {
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
   // New features for Scientific E-learning UX
-  const [quizViewMode, setQuizViewMode] = useState<"all" | "single">("single");
+  const [quizViewMode] = useState<"all" | "single">("all");
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
 
   // Time tracking
@@ -417,43 +417,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Quick Header Nav Links */}
-            {studentName && (
-              <nav className="hidden sm:flex items-center space-x-1">
-                <button 
-                  onClick={() => setPage("chapters")}
-                  className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg font-semibold text-xs transition-all ${
-                    page === "chapters" 
-                      ? "bg-indigo-50 text-indigo-700" 
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                  }`}
-                >
-                  <span>Chương học</span>
-                </button>
-
-                <button 
-                  onClick={() => setShowHistoryModal(true)}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg font-semibold text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-all"
-                >
-                  <span>Điểm số ({history.length})</span>
-                </button>
-
-                <button 
-                  onClick={() => {
-                    if (page === "quiz") {
-                      if (window.confirm("Thoát khỏi bài thi hiện tại?")) {
-                        setPage("login");
-                      }
-                    } else {
-                      setPage("login");
-                    }
-                  }}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-lg font-semibold text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-all"
-                >
-                  <span>Đổi học sinh</span>
-                </button>
-              </nav>
-            )}
+            {/* Quick Header Nav Links - Removed per user request */}
           </div>
 
           {/* Center: Custom Search Bar - Hidden on small mobile to avoid overflow */}
@@ -561,26 +525,7 @@ export default function App() {
                 </p>
               </div>
               
-              <div className="flex flex-wrap gap-3">
-                <button 
-                  onClick={() => {
-                    if (studentName) {
-                      setPage("chapters");
-                    } else {
-                      alert("Vui lòng điền thông tin đăng nhập trước.");
-                    }
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl font-bold text-xs md:text-sm shadow-lg shadow-indigo-600/35 transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" /> Ôn luyện ngay
-                </button>
-                <button 
-                  onClick={() => setShowHistoryModal(true)}
-                  className="bg-white/10 hover:bg-white/15 text-indigo-100 px-5 py-3 rounded-xl font-bold text-xs md:text-sm border border-white/10 hover:border-white/20 transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
-                >
-                  <History className="w-3.5 h-3.5" /> Lịch sử thi của bạn
-                </button>
-              </div>
+              {/* Welcome banner buttons removed per user request */}
             </div>
 
             {/* Bento Quick Statistics Panel (Right Side) */}
@@ -742,18 +687,26 @@ export default function App() {
                     className="space-y-4"
                   >
                     
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <h3 className="text-lg font-bold flex items-center space-x-2 text-slate-800 font-display">
                         <span>Danh sách các chủ đề kiểm tra</span>
                       </h3>
-                      {searchTerm && (
+                      <div className="flex items-center gap-2">
                         <button 
-                          onClick={() => setSearchTerm("")}
-                          className="text-xs text-indigo-600 font-semibold hover:underline"
+                          onClick={() => setPage("login")}
+                          className="bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60 font-bold px-3.5 py-2 rounded-xl text-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
                         >
-                          Xóa tìm kiếm
+                          <Home className="w-3.5 h-3.5" /> Trở về trang chủ
                         </button>
-                      )}
+                        {searchTerm && (
+                          <button 
+                            onClick={() => setSearchTerm("")}
+                            className="text-xs text-indigo-600 font-semibold hover:underline"
+                          >
+                            Xóa tìm kiếm
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Compact student stats row */}
@@ -877,29 +830,6 @@ export default function App() {
                         <span className="text-[10px] font-black text-indigo-600 font-mono tracking-wider uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Bài ôn tập chương học</span>
                         <h2 className="text-xl font-bold text-slate-800 font-display mt-1.5">Chương {currentChapterIndex + 1}: {chapterNames[currentChapterIndex]}</h2>
                       </div>
-                      
-                      {/* Interactive toggle view mode */}
-                      <div className="flex bg-slate-100 p-1 rounded-xl self-start md:self-center shrink-0 border border-slate-200/30">
-                        <button 
-                          onClick={() => setQuizViewMode("all")}
-                          className={`py-1.5 px-3.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                            quizViewMode === "all" ? "bg-white text-indigo-700 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-800"
-                          }`}
-                        >
-                          <ListTodo className="w-3.5 h-3.5" /> Toàn bộ (10 câu)
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setQuizViewMode("single");
-                            if (activeQuestionIndex === -1) setActiveQuestionIndex(0);
-                          }}
-                          className={`py-1.5 px-3.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                            quizViewMode === "single" ? "bg-white text-indigo-700 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-800"
-                          }`}
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Từng câu ({activeQuestionIndex + 1}/10)
-                        </button>
-                      </div>
                     </div>
 
                     {/* Active quiz status strip */}
@@ -925,73 +855,9 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-
-                      <button 
-                        onClick={() => {
-                          if (quizSubmitted || window.confirm("Xác nhận thoát? Bài thi chưa nộp sẽ bị mất kết quả.")) {
-                            setPage("chapters");
-                          }
-                        }}
-                        className="bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60 font-bold px-4 py-2 rounded-xl text-xs transition-all active:scale-95 cursor-pointer"
-                      >
-                        Thoát ra ngoài
-                      </button>
                     </div>
 
-                    {/* QUESTION QUICK NAVIGATOR (MINI-MAP) */}
-                    <div className="bg-white rounded-2xl p-4 md:p-5 border border-slate-100 shadow-sm space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] text-indigo-600 font-black uppercase tracking-wider font-mono">
-                          🗺️ Bản đồ câu hỏi {quizViewMode === "single" ? "(Bấm số để chuyển câu)" : "(Bấm số để cuộn nhanh)"}
-                        </p>
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          Trạng thái: {Object.keys(userAnswers).length === 10 ? "Đã làm đủ 10 câu ✨" : `Đã làm ${Object.keys(userAnswers).length}/10 câu`}
-                        </span>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {currentQuestions.map((q, idx) => {
-                          const isChosen = userAnswers[idx] !== undefined;
-                          const isActive = idx === activeQuestionIndex && quizViewMode === "single";
-                          
-                          let circleStyle = "border-slate-200 text-slate-600 bg-slate-50/50 hover:bg-slate-100 hover:border-slate-300";
-                          
-                          if (quizSubmitted) {
-                            const isCorrect = userAnswers[idx] === q.correct;
-                            if (isCorrect) {
-                              circleStyle = "bg-emerald-500 border-emerald-500 text-white font-bold shadow-sm shadow-emerald-500/20";
-                            } else {
-                              circleStyle = "bg-rose-500 border-rose-500 text-white font-bold shadow-sm shadow-rose-500/20";
-                            }
-                          } else if (isChosen) {
-                            circleStyle = "bg-indigo-50 border-indigo-400 text-indigo-700 font-bold";
-                          }
-
-                          if (isActive) {
-                            circleStyle += " ring-2 ring-indigo-600 ring-offset-2 scale-110 font-bold shadow-sm";
-                          }
-
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => {
-                                if (quizViewMode === "single") {
-                                  setActiveQuestionIndex(idx);
-                                } else {
-                                  const el = document.getElementById(`question-card-${idx}`);
-                                  if (el) {
-                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                  }
-                                }
-                              }}
-                              className={`w-9 h-9 md:w-10 md:h-10 rounded-xl border text-xs md:text-sm font-mono transition-all flex items-center justify-center cursor-pointer ${circleStyle}`}
-                            >
-                              {idx + 1}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {/* Navigator buttons removed per user request */}
 
                     {/* Quiz Questions List / Single View */}
                     <div className="space-y-6">
@@ -1147,30 +1013,7 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Single mode navigation buttons */}
-                    {quizViewMode === "single" && (
-                      <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                        <button
-                          disabled={activeQuestionIndex === 0}
-                          onClick={() => setActiveQuestionIndex(prev => Math.max(0, prev - 1))}
-                          className="bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <ChevronLeft className="w-4 h-4" /> Câu trước
-                        </button>
-                        
-                        <span className="text-xs font-bold text-slate-500">
-                          Câu {activeQuestionIndex + 1} / 10
-                        </span>
-
-                        <button
-                          disabled={activeQuestionIndex === 9}
-                          onClick={() => setActiveQuestionIndex(prev => Math.min(9, prev + 1))}
-                          className="bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          Câu tiếp theo <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
+                    {/* Single mode buttons removed per user request */}
 
                     {/* Warnings and errors alert in Vietnamese */}
                     {warningMessage && (
@@ -1215,6 +1058,15 @@ export default function App() {
                       >
                         Về danh sách chương
                       </button>
+
+                      {quizSubmitted && (
+                        <button
+                          onClick={() => setPage("login")}
+                          className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-bold py-3.5 px-6 rounded-xl transition-all text-sm cursor-pointer flex items-center justify-center gap-1.5 border border-slate-800"
+                        >
+                          <Home className="w-4 h-4 text-amber-400" /> Trở về trang chủ
+                        </button>
+                      )}
 
                     </div>
 
@@ -1264,21 +1116,32 @@ export default function App() {
               </p>
 
               {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <button
-                  onClick={() => setShowResultModal(false)}
-                  className="flex-1 bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold py-3 rounded-xl transition-all text-xs md:text-sm cursor-pointer"
-                >
-                  XEM LẠI ĐÁP ÁN ĐÃ CHỌN
-                </button>
+              <div className="flex flex-col gap-2.5">
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <button
+                    onClick={() => setShowResultModal(false)}
+                    className="flex-1 bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold py-3 rounded-xl transition-all text-xs md:text-sm cursor-pointer"
+                  >
+                    XEM LẠI ĐÁP ÁN ĐÃ CHỌN
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResultModal(false);
+                      setPage("chapters");
+                    }}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all text-xs md:text-sm cursor-pointer"
+                  >
+                    TIẾP TỤC CHỦ ĐỀ KHÁC
+                  </button>
+                </div>
                 <button
                   onClick={() => {
                     setShowResultModal(false);
-                    setPage("chapters");
+                    setPage("login");
                   }}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all text-xs md:text-sm cursor-pointer"
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl transition-all text-xs md:text-sm cursor-pointer flex items-center justify-center gap-1.5 border border-slate-800"
                 >
-                  TIẾP TỤC CHỦ ĐỀ KHÁC
+                  <Home className="w-4 h-4 text-amber-450" /> TRỞ VỀ TRANG CHỦ
                 </button>
               </div>
 
