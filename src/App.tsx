@@ -1084,7 +1084,7 @@ export default function App() {
                                         }`}
                                       >
                                         <div className="flex gap-1.5 items-start">
-                                          <span className="font-mono font-bold text-indigo-600 shrink-0">{letterPrefix}</span>
+                                          <span translate="no" className="notranslate font-mono font-bold text-indigo-600 shrink-0">{letterPrefix}</span>
                                           <span dangerouslySetInnerHTML={{ __html: cleanOptionText }} className="break-words" />
                                         </div>
                                         {isSelected && !quizSubmitted && (
