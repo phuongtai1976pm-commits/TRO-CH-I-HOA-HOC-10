@@ -38,7 +38,8 @@ import {
   Play,
   ListTodo,
   Eye,
-  ChevronLeft
+  ChevronLeft,
+  Shuffle
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { chapterNames, questionBank, Question } from "./data/questions";
@@ -60,22 +61,61 @@ interface QuizQuestion extends Question {
   difficulty: "Nhận biết" | "Thông hiểu" | "Vận dụng";
 }
 
-// Helper functions for Scientific E-learning UX
-const oIndexToLetter = (idx: number): string => {
-  return ["A", "B", "C", "D"][idx] || "";
+// Helper functions for Question Scoring & Checking
+const getQuestionScore = (qItem: Question, userAns: any): number => {
+  if (userAns === undefined || userAns === null) return 0;
+
+  if (qItem.type === "mcq" || (!qItem.type && "options" in qItem)) {
+    return userAns === qItem.correct ? 1 : 0;
+  }
+
+  if (qItem.type === "tf") {
+    if (typeof userAns !== "object") return 0;
+    let subCorrect = 0;
+    qItem.subOptions.forEach((sub, sIdx) => {
+      if (userAns[sIdx] === sub.correct) {
+        subCorrect++;
+      }
+    });
+    return subCorrect / 4; // 0, 0.25, 0.5, 0.75, 1.0
+  }
+
+  if (qItem.type === "short") {
+    if (typeof userAns !== "string" || !userAns.trim()) return 0;
+    const norm = (str: string) => str.trim().toLowerCase().replace(/\s+/g, "").replace(",", ".");
+    const val = norm(userAns);
+    const target = norm(qItem.correctAnswer);
+    if (val === target) return 1;
+    if (qItem.acceptableAnswers) {
+      return qItem.acceptableAnswers.some((acc) => norm(acc) === val) ? 1 : 0;
+    }
+    return 0;
+  }
+
+  return 0;
 };
 
-const getScientificExplanation = (qItem: Question, qIndex: number, diffLabel: string): string => {
-  const correctOptionText = qItem.options[qItem.correct] || "";
-  const cleanedOption = correctOptionText.replace(/<\/?[^>]+(>|$)/g, "");
-  
-  if (diffLabel === "Nhận biết") {
-    return `Phương án đúng là [${oIndexToLetter(qItem.correct)}] (${cleanedOption}). Đây là câu hỏi nhận biết lý thuyết căn bản. Việc nắm vững các định nghĩa, khái niệm, cấu trúc nguyên tử và danh pháp chuẩn quốc tế IUPAC giúp học sinh dễ dàng xây dựng nền tảng kiến thức vững vàng.`;
-  } else if (diffLabel === "Thông hiểu") {
-    return `Phương án đúng là [${oIndexToLetter(qItem.correct)}] (${cleanedOption}). Ở cấp độ thông hiểu, câu hỏi đòi hỏi bạn giải thích xu hướng biến đổi tuần hoàn, bản chất của liên kết hóa học hoặc lý giải các hiện tượng biến đổi năng lượng phản ứng một cách logic.`;
-  } else {
-    return `Phương án đúng là [${oIndexToLetter(qItem.correct)}] (${cleanedOption}). Thử thách vận dụng yêu cầu kết hợp nhuần nhuyễn tính toán tỷ lệ mol, xác định số oxi hóa trong các phản ứng phức tạp, hoặc áp dụng định luật bảo toàn khối lượng và năng lượng để tìm ra đáp án tối ưu.`;
+const isQuestionAnswered = (qItem: Question, userAns: any): boolean => {
+  if (userAns === undefined || userAns === null) return false;
+
+  if (qItem.type === "mcq" || (!qItem.type && "options" in qItem)) {
+    return typeof userAns === "number";
   }
+
+  if (qItem.type === "tf") {
+    if (typeof userAns !== "object") return false;
+    return Object.keys(userAns).length === 4;
+  }
+
+  if (qItem.type === "short") {
+    return typeof userAns === "string" && userAns.trim().length > 0;
+  }
+
+  return false;
+};
+
+const oIndexToLetter = (idx: number): string => {
+  return ["A", "B", "C", "D"][idx] || "";
 };
 
 export default function App() {
@@ -92,12 +132,12 @@ export default function App() {
   // Quiz state
   const [currentChapterIndex, setCurrentChapterIndex] = useState<number | null>(null);
   const [currentQuestions, setCurrentQuestions] = useState<QuizQuestion[]>([]);
-  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<number, any>>({});
   const [quizSubmitted, setQuizSubmitted] = useState<boolean>(false);
   const [score, setScore] = useState<number>(0);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
 
-  // New features for Scientific E-learning UX
+  // View state
   const [quizViewMode] = useState<"all" | "single">("all");
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
 
@@ -200,52 +240,114 @@ export default function App() {
     }
   };
 
-  // Generate balanced 10 questions (3 Easy, 5 Medium, 2 Hard)
+  // Helper to shuffle array (Fisher-Yates)
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  // Helper to select N questions from a pool while balancing question types (mcq, tf, short)
+  const pickBalancedByTypes = (pool: Question[], countNeeded: number): Question[] => {
+    if (pool.length <= countNeeded) {
+      return shuffleArray(pool);
+    }
+
+    // Group pool by question type
+    const mcqs = shuffleArray(pool.filter((q) => q.type === "mcq"));
+    const tfs = shuffleArray(pool.filter((q) => q.type === "tf"));
+    const shorts = shuffleArray(pool.filter((q) => q.type === "short"));
+
+    const selected: Question[] = [];
+    const typeArrays = [mcqs, tfs, shorts].filter((arr) => arr.length > 0);
+
+    let pointer = 0;
+    while (selected.length < countNeeded && typeArrays.some((arr) => arr.length > 0)) {
+      const currentTypeArr = typeArrays[pointer % typeArrays.length];
+      if (currentTypeArr.length > 0) {
+        selected.push(currentTypeArr.pop()!);
+      }
+      pointer++;
+    }
+
+    return selected;
+  };
+
+  // Generate 10 random questions for chapter quiz with 30:40:30 difficulty ratio and randomized questions/options
   const generateQuiz = (chapterIdx: number) => {
     const bank = questionBank[chapterIdx];
     if (!bank) return;
 
-    // Slices for each difficulty level
-    const easyPool = [...bank.slice(0, 5)];
-    const mediumPool = [...bank.slice(5, 15)];
-    const hardPool = [...bank.slice(15, 20)];
+    // 1. Separate questions by difficulty
+    const nhanBietPool = bank.filter((q) => q.difficulty === "Nhận biết");
+    const thongHieuPool = bank.filter((q) => q.difficulty === "Thông hiểu");
+    const vanDungPool = bank.filter((q) => q.difficulty === "Vận dụng");
 
-    // Random selection with difficulty labels
-    const selectedEasy = easyPool.sort(() => Math.random() - 0.5).slice(0, 3).map(q => ({ ...q, difficulty: "Nhận biết" as const }));
-    const selectedMedium = mediumPool.sort(() => Math.random() - 0.5).slice(0, 5).map(q => ({ ...q, difficulty: "Thông hiểu" as const }));
-    const selectedHard = hardPool.sort(() => Math.random() - 0.5).slice(0, 2).map(q => ({ ...q, difficulty: "Vận dụng" as const }));
+    // 2. Select according to 30:40:30 ratio for a 10-question set
+    // 30% Nhận biết = 3 câu
+    // 40% Thông hiểu = 4 câu
+    // 30% Vận dụng = 3 câu
+    const selectedNB = pickBalancedByTypes(nhanBietPool, 3);
+    const selectedTH = pickBalancedByTypes(thongHieuPool, 4);
+    const selectedVD = pickBalancedByTypes(vanDungPool, 3);
 
-    const merged = [...selectedEasy, ...selectedMedium, ...selectedHard];
-    // Shuffle chosen questions to mix difficulty order
-    const shuffledQuestions = merged.sort(() => Math.random() - 0.5);
+    let combined = [...selectedNB, ...selectedTH, ...selectedVD];
 
-    // Deep copy and shuffle options for each selected question
-    const finalQuestions = shuffledQuestions.map((origQ) => {
-      // Strip A. B. C. D. prefix to shuffle cleanly
-      const optionObjects = origQ.options.map((opt, oIdx) => {
-        const cleanText = opt.replace(/^[A-D]\.\s*/, "");
-        return { text: cleanText, isOriginalCorrect: oIdx === origQ.correct };
-      });
+    // Fallback if total selected is under 10
+    if (combined.length < 10) {
+      const selectedIds = new Set(combined.map((q) => q.id));
+      const remaining = shuffleArray(bank.filter((q) => !selectedIds.has(q.id)));
+      combined = [...combined, ...remaining.slice(0, 10 - combined.length)];
+    }
 
-      // Shuffle options list
-      const shuffledOptions = [...optionObjects].sort(() => Math.random() - 0.5);
+    // 3. Shuffle question order across the chosen 10 questions
+    const shuffledBank = shuffleArray(combined);
 
-      // Find new correct index
-      const newCorrectIndex = shuffledOptions.findIndex((o) => o.isOriginalCorrect);
+    // 4. Shuffle answer choices for each selected question
+    const finalQuestions = shuffledBank.map((origQ) => {
+      // MCQ options shuffle
+      if (origQ.type === "mcq") {
+        const optionObjects = origQ.options.map((opt, oIdx) => {
+          const cleanText = opt.replace(/^[A-D][\.\:\)]\s*/i, "");
+          return { text: cleanText, isOriginalCorrect: oIdx === origQ.correct };
+        });
 
-      // Restore prefixes A. B. C. D.
-      const prefixes = ["A. ", "B. ", "C. ", "D. "];
-      const formattedOptions = shuffledOptions.map((o, idx) => prefixes[idx] + o.text);
+        const shuffledOptions = shuffleArray(optionObjects);
+        const newCorrectIndex = shuffledOptions.findIndex((o) => o.isOriginalCorrect);
 
-      return {
-        q: origQ.q,
-        options: formattedOptions,
-        correct: newCorrectIndex,
-        difficulty: origQ.difficulty,
-      };
+        return {
+          ...origQ,
+          options: shuffledOptions.map((o) => o.text),
+          correct: newCorrectIndex,
+        };
+      }
+
+      // True/False subOptions shuffle
+      if (origQ.type === "tf" && origQ.subOptions) {
+        const cleanSubs = origQ.subOptions.map((sub) => ({
+          ...sub,
+          cleanLabel: sub.label.replace(/^[a-d][\.\:\)]\s*/i, ""),
+        }));
+        const shuffledSubs = shuffleArray(cleanSubs);
+        const prefixes = ["a) ", "b) ", "c) ", "d) "];
+        const newSubOptions = shuffledSubs.map((s, idx) => ({
+          correct: s.correct,
+          label: prefixes[idx] + s.cleanLabel,
+        }));
+
+        return {
+          ...origQ,
+          subOptions: newSubOptions,
+        };
+      }
+
+      return { ...origQ };
     });
 
-    setCurrentQuestions(finalQuestions);
+    setCurrentQuestions(finalQuestions as QuizQuestion[]);
     setActiveQuestionIndex(0);
   };
 
@@ -279,42 +381,60 @@ export default function App() {
     }));
   };
 
+  const handleTFSelect = (qIndex: number, subIndex: number, val: boolean) => {
+    if (quizSubmitted) return;
+    setUserAnswers((prev) => {
+      const currentTF = (prev[qIndex] as Record<number, boolean>) || {};
+      return {
+        ...prev,
+        [qIndex]: {
+          ...currentTF,
+          [subIndex]: val,
+        },
+      };
+    });
+  };
+
+  const handleShortAnswerChange = (qIndex: number, textVal: string) => {
+    if (quizSubmitted) return;
+    setUserAnswers((prev) => ({
+      ...prev,
+      [qIndex]: textVal,
+    }));
+  };
+
   const handleSubmitQuiz = () => {
     if (quizSubmitted) return;
 
-    const answeredCount = Object.keys(userAnswers).length;
-    if (answeredCount < currentQuestions.length) {
-      setWarningMessage(`* Bạn chưa hoàn thành tất cả các câu hỏi! Các câu chưa chọn sẽ tự động bị tính là sai.`);
-    }
-
-    // Calculate score
-    let calculatedScore = 0;
-    currentQuestions.forEach((item, qIdx) => {
-      if (userAnswers[qIdx] === item.correct) {
-        calculatedScore++;
+    let answeredCount = 0;
+    currentQuestions.forEach((qItem, qIdx) => {
+      if (isQuestionAnswered(qItem, userAnswers[qIdx])) {
+        answeredCount++;
       }
     });
 
-    setScore(calculatedScore);
+    if (answeredCount < currentQuestions.length) {
+      setWarningMessage(`* Bạn chưa trả lời hết ${currentQuestions.length} câu hỏi! Các câu chưa trả lời sẽ bị tính 0 điểm.`);
+    }
+
+    let totalRawScore = 0;
+    currentQuestions.forEach((item, qIdx) => {
+      totalRawScore += getQuestionScore(item, userAnswers[qIdx]);
+    });
+
+    const scaledScore = Math.round((totalRawScore / currentQuestions.length) * 10 * 10) / 10;
+
+    setScore(scaledScore);
     setQuizSubmitted(true);
     setWarningMessage(null);
 
     // Save history
-    saveHistoryRecord(calculatedScore, timeSpent);
+    saveHistoryRecord(scaledScore, timeSpent);
 
-    // Fire Confetti!
-    if (calculatedScore >= 8) {
-      confetti({
-        particleCount: 150,
-        spread: 80,
-        origin: { y: 0.6 }
-      });
-    } else if (calculatedScore >= 5) {
-      confetti({
-        particleCount: 80,
-        spread: 50,
-        origin: { y: 0.6 }
-      });
+    if (scaledScore >= 8) {
+      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+    } else if (scaledScore >= 5) {
+      confetti({ particleCount: 80, spread: 50, origin: { y: 0.6 } });
     }
 
     setShowResultModal(true);
@@ -655,7 +775,7 @@ export default function App() {
                         <ul className="text-xs text-slate-500 space-y-2.5 list-none pl-0">
                           <li className="flex items-start gap-2">
                             <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">1</span>
-                            <span><strong>Kiểm tra ngẫu nhiên:</strong> Mỗi lượt ôn tập sẽ gồm 10 câu ngẫu nhiên (3 dễ, 5 trung bình, 2 khó) để phân loại năng lực chuẩn nhất.</span>
+                            <span><strong>Cấu trúc đề 10 câu (30:40:30):</strong> Mỗi lượt ôn tập chọn ngẫu nhiên 10 câu từ ngân hàng câu hỏi theo tỷ lệ 3 câu Nhận biết (30%), 4 câu Thông hiểu (40%), 3 câu Vận dụng (30%) với đầy đủ dạng trắc nghiệm, đúng/sai và trả lời ngắn.</span>
                           </li>
                           <li className="flex items-start gap-2">
                             <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">2</span>
@@ -827,8 +947,22 @@ export default function App() {
                     {/* Chapter Header */}
                     <div className="border-b border-slate-200/60 pb-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div>
-                        <span className="text-[10px] font-black text-indigo-600 font-mono tracking-wider uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Bài ôn tập chương học</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-black text-indigo-600 font-mono tracking-wider uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Bài ôn tập chương học</span>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-2.5 py-1 rounded-md flex items-center gap-1 shadow-2xs">
+                            <Shuffle className="w-3 h-3 text-emerald-600" /> 10 câu ngẫu nhiên (3 Biết : 4 Hiểu : 3 Vận dụng)
+                          </span>
+                        </div>
                         <h2 className="text-xl font-bold text-slate-800 font-display mt-1.5">Chương {currentChapterIndex + 1}: {chapterNames[currentChapterIndex]}</h2>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={handleRetryQuiz}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+                          title="Tải lại bộ đề mới được xáo trộn ngẫu nhiên"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Làm lại (Xáo lại)
+                        </button>
                       </div>
                     </div>
 
@@ -851,30 +985,35 @@ export default function App() {
                         <div>
                           <p className="text-[9px] text-slate-400 font-bold font-mono">TIẾN TRÌNH TRẢ LỜI</p>
                           <p className="text-sm font-black text-slate-700">
-                            Đã chọn: <span className="text-emerald-600">{Object.keys(userAnswers).length}</span> / 10 câu
+                            Đã hoàn thành: <span className="text-emerald-600">{currentQuestions.filter((q, idx) => isQuestionAnswered(q, userAnswers[idx])).length}</span> / {currentQuestions.length} câu
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Navigator buttons removed per user request */}
-
-                    {/* Quiz Questions List / Single View */}
+                    {/* Quiz Questions List */}
                     <div className="space-y-6">
                       {currentQuestions.map((qItem, qIndex) => {
-                        const chosenIdx = userAnswers[qIndex];
-                        const isAnswered = chosenIdx !== undefined;
-                        const isVisible = quizViewMode === "all" || qIndex === activeQuestionIndex;
+                        const userAns = userAnswers[qIndex];
+                        const isAnswered = isQuestionAnswered(qItem, userAns);
+                        const qScore = getQuestionScore(qItem, userAns);
 
-                        if (!isVisible) return null;
-
-                        // Identify question difficulty dynamically for badge display
-                        let diffLabel = qItem.difficulty || (qIndex < 3 ? "Nhận biết" : qIndex < 8 ? "Thông hiểu" : "Vận dụng");
+                        let diffLabel = qItem.difficulty || (qIndex < 7 ? "Nhận biết" : qIndex < 15 ? "Thông hiểu" : "Vận dụng");
                         let diffStyle = "bg-emerald-50 border-emerald-100 text-emerald-700";
                         if (diffLabel === "Thông hiểu") {
                           diffStyle = "bg-indigo-50 border-indigo-100 text-indigo-700";
                         } else if (diffLabel === "Vận dụng") {
                           diffStyle = "bg-amber-50 border-amber-100 text-amber-700 font-bold";
+                        }
+
+                        let typeLabel = "Trắc nghiệm";
+                        let typeStyle = "bg-purple-50 border-purple-100 text-purple-700";
+                        if (qItem.type === "tf") {
+                          typeLabel = "Đúng / Sai (4 ý)";
+                          typeStyle = "bg-blue-50 border-blue-100 text-blue-700";
+                        } else if (qItem.type === "short") {
+                          typeLabel = "Trả lời ngắn / Tính toán";
+                          typeStyle = "bg-teal-50 border-teal-100 text-teal-700";
                         }
 
                         return (
@@ -884,104 +1023,226 @@ export default function App() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="bg-white border border-slate-150 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col md:flex-row justify-between gap-6 hover:border-indigo-200/50 hover:shadow-md/5 transition-all relative overflow-hidden"
+                            className="bg-white border border-slate-150 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col md:flex-row justify-between gap-6 hover:border-indigo-200/50 transition-all relative overflow-hidden"
                           >
-                            {/* Visual strip for active question in single view */}
-                            {quizViewMode === "single" && (
-                              <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500" />
-                            )}
-
                             <div className="flex-1 space-y-4">
                               
-                              {/* Question title and difficulty badge */}
+                              {/* Header & Badges */}
                               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 pb-2.5">
-                                <span className="text-indigo-600 font-mono text-xs md:text-sm bg-indigo-50 px-2.5 py-1 rounded-lg font-bold">
-                                  Câu hỏi {qIndex + 1} / 10
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-indigo-600 font-mono text-xs md:text-sm bg-indigo-50 px-2.5 py-1 rounded-lg font-bold">
+                                    Câu hỏi {qIndex + 1} / {currentQuestions.length}
+                                  </span>
+                                  <span className={`text-[9px] md:text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${typeStyle}`}>
+                                    {typeLabel}
+                                  </span>
+                                </div>
                                 <span className={`text-[9px] md:text-[10px] font-black uppercase px-2 py-0.5 rounded border ${diffStyle}`}>
                                   {diffLabel}
                                 </span>
                               </div>
 
+                              {/* Question Title */}
                               <h4 className="text-slate-800 font-bold text-sm md:text-base leading-relaxed">
                                 <span dangerouslySetInnerHTML={{ __html: qItem.q }} />
                               </h4>
 
-                              {/* Answers Options Grid */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                                {qItem.options.map((optionText, oIndex) => {
-                                  const isSelected = chosenIdx === oIndex;
-                                  const isCorrectAnswer = qItem.correct === oIndex;
-                                  const letterPrefix = oIndex === 0 ? "A. " : oIndex === 1 ? "B. " : oIndex === 2 ? "C. " : "D. ";
+                              {/* TYPE 1: MCQ Options Grid */}
+                              {(qItem.type === "mcq" || (!qItem.type && "options" in qItem)) && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                  {qItem.options.map((optionText, oIndex) => {
+                                    const isSelected = userAns === oIndex;
+                                    const isCorrectAnswer = qItem.correct === oIndex;
+                                    const letterPrefix = oIndex === 0 ? "A. " : oIndex === 1 ? "B. " : oIndex === 2 ? "C. " : "D. ";
+                                    const cleanOptionText = optionText.replace(/^(?:[A-D][\.\:\)]\s*)+/i, "");
 
-                                  let optionStyle = "border-slate-200 bg-white hover:bg-slate-50/80 text-slate-700 hover:border-slate-300";
+                                    let optionStyle = "border-slate-200 bg-white hover:bg-slate-50/80 text-slate-700 hover:border-slate-300";
 
-                                  if (quizSubmitted) {
-                                    if (isSelected) {
-                                      if (isCorrectAnswer) {
-                                        optionStyle = "border-emerald-500 bg-emerald-50 text-emerald-950 font-bold ring-2 ring-emerald-100";
+                                    if (quizSubmitted) {
+                                      if (isSelected) {
+                                        if (isCorrectAnswer) {
+                                          optionStyle = "border-emerald-500 bg-emerald-50 text-emerald-950 font-bold ring-2 ring-emerald-100";
+                                        } else {
+                                          optionStyle = "border-rose-400 bg-rose-50 text-rose-950 font-bold ring-2 ring-rose-100";
+                                        }
+                                      } else if (isCorrectAnswer) {
+                                        optionStyle = "border-emerald-500 bg-emerald-50/50 text-emerald-900 font-semibold";
                                       } else {
-                                        optionStyle = "border-rose-400 bg-rose-50 text-rose-950 font-bold ring-2 ring-rose-100";
+                                        optionStyle = "border-slate-100 text-slate-400 bg-slate-50/20 opacity-60";
                                       }
-                                    } else if (isCorrectAnswer) {
-                                      // Highlight correct answer if user got it wrong
-                                      optionStyle = "border-emerald-500 bg-emerald-50/50 text-emerald-900 font-semibold";
-                                    } else {
-                                      optionStyle = "border-slate-100 text-slate-400 bg-slate-50/20 opacity-60";
+                                    } else if (isSelected) {
+                                      optionStyle = "border-indigo-600 bg-indigo-50/70 text-indigo-900 font-extrabold ring-2 ring-indigo-100";
                                     }
-                                  } else if (isSelected) {
-                                    optionStyle = "border-indigo-600 bg-indigo-50/70 text-indigo-900 font-extrabold ring-2 ring-indigo-100";
-                                  }
 
-                                  return (
-                                    <button
-                                      key={oIndex}
-                                      disabled={quizSubmitted}
-                                      onClick={() => handleSelectOption(qIndex, oIndex)}
-                                      className={`p-3.5 text-left rounded-xl border text-xs md:text-sm transition-all flex items-start justify-between ${optionStyle} ${
-                                        quizSubmitted ? "cursor-not-allowed" : "cursor-pointer"
-                                      }`}
-                                    >
-                                      <div className="flex gap-1.5 items-start">
-                                        <span className="font-mono font-bold text-indigo-600 shrink-0">{letterPrefix}</span>
-                                        <span dangerouslySetInnerHTML={{ __html: optionText }} className="break-words" />
-                                      </div>
-                                      {isSelected && !quizSubmitted && (
-                                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0 ml-2 mt-1 shadow-sm" />
+                                    return (
+                                      <button
+                                        key={oIndex}
+                                        disabled={quizSubmitted}
+                                        onClick={() => handleSelectOption(qIndex, oIndex)}
+                                        className={`p-3.5 text-left rounded-xl border text-xs md:text-sm transition-all flex items-start justify-between ${optionStyle} ${
+                                          quizSubmitted ? "cursor-not-allowed" : "cursor-pointer"
+                                        }`}
+                                      >
+                                        <div className="flex gap-1.5 items-start">
+                                          <span className="font-mono font-bold text-indigo-600 shrink-0">{letterPrefix}</span>
+                                          <span dangerouslySetInnerHTML={{ __html: cleanOptionText }} className="break-words" />
+                                        </div>
+                                        {isSelected && !quizSubmitted && (
+                                          <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0 ml-2 mt-1 shadow-sm" />
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* TYPE 2: True / False (4 Sub-options) */}
+                              {qItem.type === "tf" && (
+                                <div className="space-y-3 pt-1">
+                                  <p className="text-xs font-semibold text-slate-500 italic">
+                                    Vui lòng chọn ĐÚNG hoặc SAI cho từng ý a, b, c, d dưới đây:
+                                  </p>
+                                  <div className="space-y-2.5">
+                                    {qItem.subOptions.map((sub, sIdx) => {
+                                      const subAns = (userAns as Record<number, boolean>)?.[sIdx];
+                                      const isSubCorrect = subAns === sub.correct;
+
+                                      return (
+                                        <div 
+                                          key={sIdx}
+                                          className={`p-3 rounded-xl border text-xs md:text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all ${
+                                            quizSubmitted
+                                              ? subAns !== undefined
+                                                ? isSubCorrect
+                                                  ? "bg-emerald-50/60 border-emerald-200 text-emerald-950"
+                                                  : "bg-rose-50/60 border-rose-200 text-rose-950"
+                                                : "bg-amber-50/60 border-amber-200 text-amber-950"
+                                              : subAns !== undefined
+                                                ? "bg-indigo-50/30 border-indigo-200 text-slate-800"
+                                                : "bg-slate-50 border-slate-200 text-slate-700"
+                                          }`}
+                                        >
+                                          <div className="flex-1 text-slate-800 font-medium leading-relaxed">
+                                            {sub.label}
+                                            {quizSubmitted && (
+                                              <span className="ml-2 inline-block font-bold text-[11px] px-2 py-0.5 rounded bg-white/80 border border-slate-200">
+                                                Đáp án chuẩn: <span className={sub.correct ? "text-emerald-700" : "text-rose-700"}>{sub.correct ? "ĐÚNG" : "SAI"}</span>
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                                            <button
+                                              disabled={quizSubmitted}
+                                              onClick={() => handleTFSelect(qIndex, sIdx, true)}
+                                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                                subAns === true
+                                                  ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-200"
+                                                  : "bg-white border border-slate-200 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
+                                              } ${quizSubmitted ? "cursor-not-allowed opacity-90" : "cursor-pointer"}`}
+                                            >
+                                              ĐÚNG
+                                            </button>
+                                            <button
+                                              disabled={quizSubmitted}
+                                              onClick={() => handleTFSelect(qIndex, sIdx, false)}
+                                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                                subAns === false
+                                                  ? "bg-rose-600 text-white shadow-sm ring-2 ring-rose-200"
+                                                  : "bg-white border border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-700"
+                                              } ${quizSubmitted ? "cursor-not-allowed opacity-90" : "cursor-pointer"}`}
+                                            >
+                                              SAI
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* TYPE 3: Short Answer / Calculation */}
+                              {qItem.type === "short" && (
+                                <div className="space-y-3 pt-1">
+                                  <p className="text-xs font-semibold text-slate-500 italic">
+                                    Điền kết quả tính toán hoặc đáp án ngắn vào ô dưới đây:
+                                  </p>
+                                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-md">
+                                    <div className="relative flex-1">
+                                      <input
+                                        type="text"
+                                        disabled={quizSubmitted}
+                                        value={(userAns as string) || ""}
+                                        onChange={(e) => handleShortAnswerChange(qIndex, e.target.value)}
+                                        placeholder="Nhập kết quả (ví dụ: 12, 63.54)..."
+                                        className={`w-full px-4 py-3 rounded-xl border outline-none transition-all text-sm font-mono ${
+                                          quizSubmitted
+                                            ? qScore === 1
+                                              ? "bg-emerald-50 border-emerald-400 text-emerald-950 font-bold"
+                                              : "bg-rose-50 border-rose-400 text-rose-950 font-bold"
+                                            : "bg-white border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                                        }`}
+                                      />
+                                      {qItem.unit && (
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                                          {qItem.unit}
+                                        </span>
                                       )}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                                    </div>
+                                  </div>
 
-                              {/* SCIENTIFIC EXPLANATION PANEL (ONLY VISIBLE ONCE SUBMITTED) */}
+                                  {quizSubmitted && (
+                                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-1">
+                                      <p className="font-bold">
+                                        Đáp án chuẩn: <span className="text-emerald-700 font-mono text-sm">{qItem.correctAnswer}</span> {qItem.unit || ""}
+                                      </p>
+                                      {qItem.explanation && (
+                                        <p className="text-slate-500">
+                                          <strong>Hướng dẫn:</strong> {qItem.explanation}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* EXPLANATION PANEL (AFTER SUBMIT) */}
                               {quizSubmitted && (
                                 <motion.div 
                                   initial={{ opacity: 0, height: 0 }}
                                   animate={{ opacity: 1, height: "auto" }}
                                   className={`p-4 rounded-xl text-xs md:text-sm border ${
-                                    chosenIdx === qItem.correct 
+                                    qScore === 1 
                                       ? "bg-emerald-50/60 border-emerald-100 text-emerald-900" 
-                                      : "bg-rose-50/60 border-rose-100 text-rose-900"
+                                      : qScore > 0
+                                        ? "bg-amber-50/60 border-amber-100 text-amber-900"
+                                        : "bg-rose-50/60 border-rose-100 text-rose-900"
                                   }`}
                                 >
                                   <div className="flex items-start gap-2.5">
                                     <div className="mt-0.5">
-                                      {chosenIdx === qItem.correct ? (
+                                      {qScore === 1 ? (
                                         <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[10px]">✓</div>
+                                      ) : qScore > 0 ? (
+                                        <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center font-bold text-[10px]">!</div>
                                       ) : (
                                         <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-[10px]">✗</div>
                                       )}
                                     </div>
                                     <div className="space-y-1">
                                       <p className="font-bold">
-                                        {chosenIdx === qItem.correct 
-                                          ? "Giải pháp xuất sắc! Bạn đã vượt qua thử thách này." 
-                                          : `Bạn chưa đúng ở câu này. Phương án đúng là ${oIndexToLetter(qItem.correct)}.`}
+                                        {qScore === 1 
+                                          ? "Xuất sắc! Bạn đã đạt điểm tối đa ở câu hỏi này." 
+                                          : qScore > 0
+                                            ? `Bạn đã đạt ${qScore * 100}% số điểm câu này.`
+                                            : "Bạn chưa đúng ở câu này."}
                                       </p>
-                                      <p className="text-slate-500 text-xs leading-relaxed">
-                                        <strong>Cơ sở khoa học:</strong> {getScientificExplanation(qItem, qIndex, diffLabel)}
-                                      </p>
+                                      {qItem.explanation && (
+                                        <p className="text-slate-600 text-xs leading-relaxed">
+                                          <strong>Cơ sở khoa học:</strong> {qItem.explanation}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 </motion.div>
@@ -989,21 +1250,26 @@ export default function App() {
 
                             </div>
 
-                            {/* Status side indicator */}
-                            <div className="flex md:flex-col items-center justify-center shrink-0 w-full md:w-16 self-stretch border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-4">
+                            {/* Right Status Badge */}
+                            <div className="flex md:flex-col items-center justify-center shrink-0 w-full md:w-20 self-stretch border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-4">
                               {quizSubmitted ? (
-                                chosenIdx === qItem.correct ? (
-                                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shadow-sm">✓</div>
-                                ) : (
-                                  <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-sm shadow-sm">✗</div>
-                                )
+                                <div className={`text-center p-2 rounded-xl w-full ${
+                                  qScore === 1 
+                                    ? "bg-emerald-100/70 text-emerald-800" 
+                                    : qScore > 0
+                                      ? "bg-amber-100/70 text-amber-800"
+                                      : "bg-rose-100/70 text-rose-800"
+                                }`}>
+                                  <p className="text-lg font-black font-mono">{qScore * 100}%</p>
+                                  <p className="text-[9px] font-bold uppercase">{qScore === 1 ? "Đúng" : qScore > 0 ? "Một phần" : "Sai"}</p>
+                                </div>
                               ) : (
                                 <div className={`text-xs font-bold px-3 py-1.5 rounded-full ${
                                   isAnswered 
                                     ? "bg-indigo-100 text-indigo-700 font-semibold" 
                                     : "bg-slate-100 text-slate-400"
                                 }`}>
-                                  {isAnswered ? "Đã chọn" : `Chưa chọn`}
+                                  {isAnswered ? "Đã làm" : "Chưa làm"}
                                 </div>
                               )}
                             </div>
